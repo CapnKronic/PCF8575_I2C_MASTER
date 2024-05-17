@@ -6,4 +6,6 @@
 int i2c_init();
 int i2c_detect();
 i2c_master_bus_handle_t getHandle();
-int i2c_get(int chip_addr, int length);
+int i2c_get(int, int);
+int i2c_set(int, int value);
+int i2c_dump(int, int);

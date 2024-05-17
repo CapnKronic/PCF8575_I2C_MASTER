@@ -11,16 +11,16 @@ static uint32_t i2c_frequency = 100 * 1000;
 
 static const char *TAG = "I2C";
 
-static esp_err_t i2c_get_port(int port, i2c_port_t *i2c_port)
-{
-    if (port >= I2C_NUM_MAX)
-    {
-        ESP_LOGE(TAG, "Wrong port number: %d", port);
-        return ESP_FAIL;
-    }
-    *i2c_port = port;
-    return ESP_OK;
-}
+// static esp_err_t i2c_get_port(int port, i2c_port_t *i2c_port)
+// {
+//     if (port >= I2C_NUM_MAX)
+//     {
+//         ESP_LOGE(TAG, "Wrong port number: %d", port);
+//         return ESP_FAIL;
+//     }
+//     *i2c_port = port;
+//     return ESP_OK;
+// }
 
 static int i2c_config()
 {
@@ -153,58 +153,108 @@ int i2c_get(int chip_addr, int len)
     return 0;
 }
 
-// static struct {
-//     struct arg_int *chip_address;
-//     struct arg_int *register_address;
-//     struct arg_int *data;
-//     struct arg_end *end;
-// } i2cset_args;
 
-// static int do_i2cset_cmd(int argc, char **argv)
-// {
-//     int nerrors = arg_parse(argc, argv, (void **)&i2cset_args);
-//     if (nerrors != 0) {
-//         arg_print_errors(stderr, i2cset_args.end, argv[0]);
-//         return 0;
-//     }
+int i2c_dump(int chip_addr,int size)
+{
+   
 
-//     /* Check chip address: "-c" option */
-//     int chip_addr = i2cset_args.chip_address->ival[0];
-//     /* Check register address: "-r" option */
-//     int data_addr = 0;
-//     if (i2cset_args.register_address->count) {
-//         data_addr = i2cset_args.register_address->ival[0];
-//     }
-//     /* Check data: "-d" option */
-//     int len = i2cset_args.data->count;
+    // /* Check chip address: "-c" option */
+    // int chip_addr = i2cdump_args.chip_address->ival[0];
+    // /* Check read size: "-s" option */
+    // if (i2cdump_args.size->count) {
+    //     size = i2cdump_args.size->ival[0];
+    // }
+    if (size != 1 && size != 2 && size != 4) {
+        ESP_LOGE(TAG, "Wrong read size. Only support 1,2,4");
+        return 1;
+    }
 
-//     i2c_device_config_t i2c_dev_conf = {
-//         .scl_speed_hz = i2c_frequency,
-//         .device_address = chip_addr,
-//     };
-//     i2c_master_dev_handle_t dev_handle;
-//     if (i2c_master_bus_add_device(bus_handle, &i2c_dev_conf, &dev_handle) != ESP_OK) {
-//         return 1;
-//     }
+    i2c_device_config_t i2c_dev_conf = {
+        .scl_speed_hz = i2c_frequency,
+        .device_address = chip_addr,
+    };
+    i2c_master_dev_handle_t dev_handle;
+    if (i2c_master_bus_add_device(bus_handle, &i2c_dev_conf, &dev_handle) != ESP_OK) {
+        return 1;
+    }
 
-//     uint8_t *data = malloc(len + 1);
-//     data[0] = data_addr;
-//     for (int i = 0; i < len; i++) {
-//         data[i + 1] = i2cset_args.data->ival[i];
-//     }
-//     esp_err_t ret = i2c_master_transmit(dev_handle, data, len + 1, I2C_TOOL_TIMEOUT_VALUE_MS);
-//     if (ret == ESP_OK) {
-//         ESP_LOGI(TAG, "Write OK");
-//     } else if (ret == ESP_ERR_TIMEOUT) {
-//         ESP_LOGW(TAG, "Bus is busy");
-//     } else {
-//         ESP_LOGW(TAG, "Write Failed");
-//     }
+    uint8_t data_addr;
+    uint8_t data[4];
+    int32_t block[16];
+    printf("     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f"
+           "    0123456789abcdef\r\n");
+    for (int i = 0; i < 128; i += 16) {
+        printf("%02x: ", i);
+        for (int j = 0; j < 16; j += size) {
+            fflush(stdout);
+            data_addr = i + j;
+            esp_err_t ret = i2c_master_transmit_receive(dev_handle, &data_addr, 1, data, size, I2C_TOOL_TIMEOUT_VALUE_MS);
+            if (ret == ESP_OK) {
+                for (int k = 0; k < size; k++) {
+                    printf("%02x ", data[k]);
+                    block[j + k] = data[k];
+                }
+            } else {
+                for (int k = 0; k < size; k++) {
+                    printf("XX ");
+                    block[j + k] = -1;
+                }
+            }
+        }
+        printf("   ");
+        for (int k = 0; k < 16; k++) {
+            if (block[k] < 0) {
+                printf("X");
+            }
+            if ((block[k] & 0xff) == 0x00 || (block[k] & 0xff) == 0xff) {
+                printf(".");
+            } else if ((block[k] & 0xff) < 32 || (block[k] & 0xff) >= 127) {
+                printf("?");
+            } else {
+                printf("%c", (char)(block[k] & 0xff));
+            }
+        }
+        printf("\r\n");
+    }
+    if (i2c_master_bus_rm_device(dev_handle) != ESP_OK) {
+        return 1;
+    }
+    return 0;
+}
 
-//     free(data);
-//     if (i2c_master_bus_rm_device(dev_handle) != ESP_OK) {
-//         return 1;
-//     }
-//     return 0;
-// }
 
+int i2c_set(int chip_addr, int value)
+{
+
+    int len = sizeof(value);    
+
+    i2c_device_config_t i2c_dev_conf = {
+        .scl_speed_hz = i2c_frequency,
+        .device_address = chip_addr,
+    };
+    i2c_master_dev_handle_t dev_handle;
+    if (i2c_master_bus_add_device(bus_handle, &i2c_dev_conf, &dev_handle) != ESP_OK) {
+        return 1;
+    }
+
+       uint8_t *data = malloc(len + 1);
+
+    // data[0] = data_addr;
+
+        data[0] = value;
+        data[1] = value>>8;
+       esp_err_t ret = i2c_master_transmit(dev_handle, data, len , I2C_TOOL_TIMEOUT_VALUE_MS);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Write OK");
+    } else if (ret == ESP_ERR_TIMEOUT) {
+        ESP_LOGW(TAG, "Bus is busy");
+    } else {
+        ESP_LOGW(TAG, "Write Failed");
+    }
+
+    free(data);
+    if (i2c_master_bus_rm_device(dev_handle) != ESP_OK) {
+        return 1;
+    }
+    return 0;
+}
